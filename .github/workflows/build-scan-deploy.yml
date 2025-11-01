@@ -34,7 +34,7 @@ jobs:
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::<ACCOUNT_ID>:role/github-oidc-deploy
+          role-to-assume: arn:aws:iam::813600886350:role/github-oidc-deploy
           aws-region: ${{ env.AWS_REGION }}
 
       # --- Get ECR URL (repo must exist; created by Terraform or manually) ---
@@ -110,7 +110,7 @@ jobs:
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::<ACCOUNT_ID>:role/github-oidc-deploy
+          role-to-assume: arn:aws:iam::813600886350:role/github-oidc-deploy
           aws-region: ${{ env.AWS_REGION }}
 
       # --- Terraform setup ---
