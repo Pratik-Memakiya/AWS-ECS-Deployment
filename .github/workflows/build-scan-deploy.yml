@@ -111,6 +111,13 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::813600886350:role/github-oidc-deploy
           aws-region: ${{ env.AWS_REGION }}
+          role-session: gha-deploy
+
+      - name : STS caller indentity
+        run: aws sts get-caller-identity
+
+      - name : Print AWS en vars
+        run: env | grep ^AWS
 
       # ✅ Export credentials for Terraform explicitly
       - name: Export AWS credentials to environment
@@ -119,8 +126,7 @@ jobs:
           echo "AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}" >> $GITHUB_ENV
           echo "AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN}" >> $GITHUB_ENV
 
-      - name : STS caller indentity
-        run: aws sts get-caller-identity
+      
 
       # Terraform setup
       - name: Setup Terraform
