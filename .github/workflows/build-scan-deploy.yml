@@ -105,12 +105,12 @@ jobs:
           echo "IMAGE_TAG=$TAG" >> $GITHUB_ENV
           echo "Using IMAGE_TAG=$TAG"
 
-      # ✅ Configure AWS credentials first
-      - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::813600886350:role/github-oidc-deploy
-          aws-region: ${{ env.AWS_REGION }}
+      # # ✅ Configure AWS credentials first
+      # - name: Configure AWS credentials (OIDC)
+      #   uses: aws-actions/configure-aws-credentials@v4
+      #   with:
+      #     role-to-assume: arn:aws:iam::813600886350:role/github-oidc-deploy
+      #     aws-region: ${{ env.AWS_REGION }}
 
       # ✅ Export credentials for Terraform explicitly
       - name: Export AWS credentials to environment
