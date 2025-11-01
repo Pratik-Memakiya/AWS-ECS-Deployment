@@ -140,13 +140,13 @@ jobs:
           echo "terraform.tfvars contents:"
           cat terraform.tfvars
 
-      - name: Terraform Plan
-        working-directory: terraform
-        run: terraform plan -out tf.plan -input=false
+      # - name: Terraform Plan
+      #   working-directory: terraform
+      #   run: terraform plan -out tf.plan -input=false
 
-      - name: Terraform Apply
-        working-directory: terraform
-        run: terraform apply -auto-approve tf.plan
+      # - name: Terraform Apply
+      #   working-directory: terraform
+      #   run: terraform apply -auto-approve tf.plan
 
       - name: Show ALB URL
         working-directory: terraform
