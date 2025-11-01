@@ -123,6 +123,15 @@ jobs:
         working-directory: terraform
         run: terraform plan -out tf.plan -input=false
 
+      # importing ecr 
+      - name: Import existing ECR repo if needed
+        run: |
+          terraform init -backend=false
+          if aws ecr describe-repositories --repository-names "${APP_NAME}" --region "${AWS_REGION}" >/dev/null 2>&1; then
+          terraform import -no-color module.ecr.aws_ecr_repository.this "${APP_NAME}" || true
+          fi
+
+
       # --- Terraform Apply ---
       - name: Terraform Apply
         working-directory: terraform
