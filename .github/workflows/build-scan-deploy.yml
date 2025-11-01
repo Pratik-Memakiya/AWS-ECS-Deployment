@@ -26,83 +26,88 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # --- Configure AWS credentials using OIDC ---
-      - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ env.ROLE_TO_ASSUME }}
-          aws-region: ${{ env.AWS_REGION }}
+      # # --- Configure AWS credentials using OIDC ---
+      # - name: Configure AWS credentials (OIDC)
+      #   uses: aws-actions/configure-aws-credentials@v4
+      #   with:
+      #     role-to-assume: ${{ env.ROLE_TO_ASSUME }}
+      #     aws-region: ${{ env.AWS_REGION }}
 
-      - name: Verify AWS Identity
-        run: aws sts get-caller-identity
+      # - name: Verify AWS Identity
+      #   run: aws sts get-caller-identity
 
-      # --- Get ECR Repository URI ---
-      - name: Resolve ECR Repository URI
-        id: ecr
-        run: |
-          ECR_URL=$(aws ecr describe-repositories \
-            --repository-names ${APP_NAME} \
-            --query 'repositories[0].repositoryUri' \
-            --output text)
-          echo "ECR_URL=$ECR_URL" >> $GITHUB_ENV
-          echo "Resolved ECR_URL: $ECR_URL"
+      # # --- Get ECR Repository URI ---
+      # - name: Resolve ECR Repository URI
+      #   id: ecr
+      #   run: |
+      #     ECR_URL=$(aws ecr describe-repositories \
+      #       --repository-names ${APP_NAME} \
+      #       --query 'repositories[0].repositoryUri' \
+      #       --output text)
+      #     echo "ECR_URL=$ECR_URL" >> $GITHUB_ENV
+      #     echo "Resolved ECR_URL: $ECR_URL"
 
-      # --- Login to Amazon ECR ---
-      - name: Login to Amazon ECR
-        uses: aws-actions/amazon-ecr-login@v2
+      # # --- Login to Amazon ECR ---
+      # - name: Login to Amazon ECR
+      #   uses: aws-actions/amazon-ecr-login@v2
 
-      # --- Build Docker image ---
-      - name: Build Docker image
-        run: |
-          docker build -t $ECR_URL:${IMAGE_TAG} ./app
+      # # --- Build Docker image ---
+      # - name: Build Docker image
+      #   run: |
+      #     docker build -t $ECR_URL:${IMAGE_TAG} ./app
 
-      # --- Scan image using Trivy ---
-      - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@0.24.0
-        with:
-          image-ref: ${{ env.ECR_URL }}:${{ env.IMAGE_TAG }}
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-          format: table
-          exit-code: 0  
+      # # --- Scan image using Trivy ---
+      # - name: Run Trivy vulnerability scanner
+      #   uses: aquasecurity/trivy-action@0.24.0
+      #   with:
+      #     image-ref: ${{ env.ECR_URL }}:${{ env.IMAGE_TAG }}
+      #     severity: CRITICAL,HIGH
+      #     ignore-unfixed: true
+      #     format: table
+      #     exit-code: 0  
 
-      # --- Push image to ECR ---
-      - name: Push image
-        run: |
-          docker push $ECR_URL:${IMAGE_TAG}
+      # # --- Push image to ECR ---
+      # - name: Push image
+      #   run: |
+      #     docker push $ECR_URL:${IMAGE_TAG}
 
-      # --- Terraform Setup ---
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: 1.7.5
+      # # --- Terraform Setup ---
+      # - name: Setup Terraform
+      #   uses: hashicorp/setup-terraform@v3
+      #   with:
+      #     terraform_version: 1.7.5
 
-      # --- Terraform Init ---
-      - name: Terraform Init
+      # # --- Terraform Init ---
+      # - name: Terraform Init
+      #   working-directory: terraform
+      #   run: terraform init -input=false
+
+      # # --- Update image_tag in terraform.tfvars ---
+      # - name: Update image_tag in terraform.tfvars
+      #   working-directory: terraform
+      #   run: |
+      #     if grep -q '^image_tag' terraform.tfvars 2>/dev/null; then
+      #       sed -i "s/^image_tag\\s*=.*/image_tag = \"${IMAGE_TAG}\"/" terraform.tfvars
+      #     else
+      #       echo "image_tag = \"${IMAGE_TAG}\"" >> terraform.tfvars
+      #     fi
+      #     echo "terraform.tfvars contents:"
+      #     cat terraform.tfvars
+
+      # # --- Terraform Plan ---
+      # - name: Terraform Plan
+      #   working-directory: terraform
+      #   run: terraform plan -out tf.plan -input=false
+
+      # # --- Terraform Apply ---
+      # - name: Terraform Apply
+      #   working-directory: terraform
+      #   run: terraform apply -auto-approve tf.plan
+
+      # --- Terraform Destroy ---
+      - name: Terraform Destroy
         working-directory: terraform
-        run: terraform init -input=false
-
-      # --- Update image_tag in terraform.tfvars ---
-      - name: Update image_tag in terraform.tfvars
-        working-directory: terraform
-        run: |
-          if grep -q '^image_tag' terraform.tfvars 2>/dev/null; then
-            sed -i "s/^image_tag\\s*=.*/image_tag = \"${IMAGE_TAG}\"/" terraform.tfvars
-          else
-            echo "image_tag = \"${IMAGE_TAG}\"" >> terraform.tfvars
-          fi
-          echo "terraform.tfvars contents:"
-          cat terraform.tfvars
-
-      # --- Terraform Plan ---
-      - name: Terraform Plan
-        working-directory: terraform
-        run: terraform plan -out tf.plan -input=false
-
-      # --- Terraform Apply ---
-      - name: Terraform Apply
-        working-directory: terraform
-        run: terraform apply -auto-approve tf.plan
+        run: terraform destroy 
 
       # --- Output ALB URL ---
       - name: Show ALB URL
