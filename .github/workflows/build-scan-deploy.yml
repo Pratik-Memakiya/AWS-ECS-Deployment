@@ -105,13 +105,12 @@ jobs:
           echo "IMAGE_TAG=$TAG" >> $GITHUB_ENV
           echo "Using IMAGE_TAG=$TAG"
 
-      # ✅ Configure AWS credentials first
+      # --- Configure AWS via OIDC (no static keys) ---
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::813600886350:role/github-oidc-deploy
           aws-region: ${{ env.AWS_REGION }}
-          role-session: gha-deploy
 
       - name : STS caller indentity
         run: aws sts get-caller-identity
