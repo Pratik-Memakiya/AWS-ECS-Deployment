@@ -1,24 +1,23 @@
-name: build-scan-deploy
+# 
+
+name: terraform-destroy
 
 on:
-  push:
-    branches: [ "main" ]
-  workflow_dispatch:
+  workflow_dispatch:  # Manual trigger only
 
 permissions:
-  id-token: write    # for OIDC
-  contents: read     # to checkout the repo
+  id-token: write
+  contents: read
   actions: read
 
 env:
   AWS_REGION: ap-south-1
   APP_NAME: hello-ecs
-  IMAGE_TAG: v${{ github.run_number }}
   ROLE_TO_ASSUME: arn:aws:iam::813600886350:role/github-oidc-deploy
 
 jobs:
-  build_scan_deploy:
-    name: Build, Scan, Push & Deploy via Terraform
+  destroy:
+    name: Terraform Destroy Resources
     runs-on: ubuntu-latest
 
     steps:
@@ -36,122 +35,15 @@ jobs:
       - name: Verify AWS Identity
         run: aws sts get-caller-identity
 
-      # --- Get ECR Repository URI ---
-      - name: Resolve or Create ECR Repository URI
-        id: ecr
-        run: |
-          set -e
-          APP_NAME=${APP_NAME:-hello-ecs}
-          REGION="ap-south-1"
-
-          echo "Checking if ECR repository '${APP_NAME}' exists in region ${REGION}..."
-
-          # Try to describe repository
-          ECR_URL=$(aws ecr describe-repositories \
-            --repository-names "${APP_NAME}" \
-            --region "${REGION}" \
-            --query 'repositories[0].repositoryUri' \
-            --output text 2>/dev/null) || true
-
-          # If ECR_URL is empty, create the repository
-          if [ -z "$ECR_URL" ] || [ "$ECR_URL" == "None" ]; then
-          echo "Repository not found. Creating new ECR repository '${APP_NAME}'..."
-          ECR_URL=$(aws ecr create-repository \
-            --repository-name "${APP_NAME}" \
-            --region "${REGION}" \
-            --query 'repository.repositoryUri' \
-            --output text)
-          echo "✅ Repository created: $ECR_URL"
-          else
-          echo "✅ Repository already exists: $ECR_URL"
-          fi
-
-           # Export to environment
-          echo "ECR_URL=$ECR_URL" >> $GITHUB_ENV
-          echo "Resolved ECR_URL: $ECR_URL"
-
-
-      # --- Login to Amazon ECR ---
-      - name: Login to Amazon ECR
-        uses: aws-actions/amazon-ecr-login@v2
-
-      # --- Build Docker image ---
-      - name: Build Docker image
-        run: |
-          docker build -t $ECR_URL:${IMAGE_TAG} ./app
-
-      # --- Scan image using Trivy ---
-      - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@0.24.0
-        with:
-          image-ref: ${{ env.ECR_URL }}:${{ env.IMAGE_TAG }}
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-          format: table
-          exit-code: 0  
-
-      # --- Push image to ECR ---
-      - name: Push image
-        run: |
-          docker push $ECR_URL:${IMAGE_TAG}
-
-      # --- Terraform Setup ---
+      # --- Setup Terraform ---
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.7.5
 
-      # --- Terraform Init ---
-      - name: Terraform Init
-        working-directory: terraform
-        run: terraform init -input=false
-      
-       # --- Stage 1: Apply Network module only ---
-      - name: Terraform Apply Network Module as it is required to import ECR
+      # --- Terraform Destroy ---
+      - name: Terraform Destroy
         working-directory: terraform
         run: |
-          echo "🚀 Applying only the network module first..."
-          terraform apply -target=module.network -auto-approve
-
-      # --- Import existing ECR repo if needed ---
-      - name: Import existing ECR repo if needed
-        working-directory: terraform
-        run: |
-          set -e
-          echo "Checking if ECR repo ${APP_NAME} exists before Terraform plan..."
-          if aws ecr describe-repositories --repository-names "${APP_NAME}" --region "${AWS_REGION}" >/dev/null 2>&1; then
-            echo "ECR repo exists, importing into Terraform state..."
-            terraform import -no-color module.ecr.aws_ecr_repository.this "${APP_NAME}" || true
-          else
-            echo "ECR repo not found, Terraform will create it."
-          fi
-
-      # --- Update image_tag in terraform.tfvars ---
-      - name: Update image_tag in terraform.tfvars
-        working-directory: terraform
-        run: |
-          if grep -q '^image_tag' terraform.tfvars 2>/dev/null; then
-            sed -i "s/^image_tag\\s*=.*/image_tag = \"${IMAGE_TAG}\"/" terraform.tfvars
-          else
-            echo "image_tag = \"${IMAGE_TAG}\"" >> terraform.tfvars
-          fi
-          echo "terraform.tfvars contents:"
-          cat terraform.tfvars
-
-      # --- Terraform Plan ---
-      - name: Terraform Plan
-        working-directory: terraform
-        run: terraform plan -out tf.plan -input=false
-
-
-      # --- Terraform Apply ---
-      - name: Terraform Apply
-        working-directory: terraform
-        run: terraform apply -auto-approve tf.plan
-
-      # --- Output ALB URL ---
-      - name: Show ALB URL
-        working-directory: terraform
-        run: |
-          URL=$(terraform output -raw alb_dns_name || true)
-          echo "ALB URL: http://$URL"
+          terraform init -input=false
+          terraform destroy -auto-approve
