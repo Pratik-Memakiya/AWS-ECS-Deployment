@@ -13,7 +13,7 @@ concurrency:
 permissions:
   id-token: write           # OIDC
   contents: read            # checkout
-  actions: read
+  actions: read 
 
 env:
   AWS_REGION: ap-south-1
@@ -57,16 +57,20 @@ jobs:
         run: |
           docker build -t $ECR_URL:${IMAGE_TAG} ./app
 
-      # --- Trivy vulnerability scan ---
-      # If it fails on CRITICAL/HIGH, the job stops; adjust severities if needed.
-      - name: Trivy scan (fail on CRITICAL/HIGH)
+      # --- Trivy vulnerability scan (fail on CRITICAL/HIGH) ---
+      - name: Trivy Vulnerability Scan
         uses: aquasecurity/trivy-action@0.24.0
         with:
           image-ref: ${{ env.ECR_URL }}:${{ env.IMAGE_TAG }}
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
-          exit-code: '1'
+          exit-code: '1'          # Fail if CRITICAL/HIGH found
           ignore-unfixed: true
+          format: 'table'
+          cache-dir: .trivy-cache  # Speeds up future scans
+        env:
+          TRIVY_SKIP_UPDATE: false   # always fetch latest DB
+          TRIVY_DEBUG: false
 
       # --- Push image to ECR ---
       - name: Push image
