@@ -1,0 +1,151 @@
+name: build-scan-deploy
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+# Prevent overlapping deploys on main
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
+permissions:
+  id-token: write           # OIDC
+  contents: read            # checkout
+  actions: read
+
+env:
+  AWS_REGION: ap-south-1
+  APP_NAME: hello-ecs
+  # Image tag: unique per run; can also use git SHA
+  IMAGE_TAG: v${{ github.run_number }}
+
+jobs:
+  build_scan_push:
+    name: Build, Scan & Push to ECR
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # --- Configure AWS via OIDC (no static keys) ---
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::<ACCOUNT_ID>:role/github-oidc-deploy
+          aws-region: ${{ env.AWS_REGION }}
+
+      # --- Get ECR URL (repo must exist; created by Terraform or manually) ---
+      - name: Resolve ECR Repository URI
+        id: ecr
+        run: |
+          ECR_URL=$(aws ecr describe-repositories \
+            --repository-names ${APP_NAME} \
+            --query 'repositories[0].repositoryUri' \
+            --output text)
+          echo "ECR_URL=$ECR_URL" >> $GITHUB_ENV
+          echo "Resolved ECR_URL: $ECR_URL"
+
+      # --- Login to ECR ---
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # --- Build Docker image ---
+      - name: Build Docker image
+        run: |
+          docker build -t $ECR_URL:${IMAGE_TAG} ./app
+
+      # --- Trivy vulnerability scan ---
+      # If it fails on CRITICAL/HIGH, the job stops; adjust severities if needed.
+      - name: Trivy scan (fail on CRITICAL/HIGH)
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: ${{ env.ECR_URL }}:${{ env.IMAGE_TAG }}
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+          ignore-unfixed: true
+
+      # --- Push image to ECR ---
+      - name: Push image
+        run: |
+          docker push $ECR_URL:${IMAGE_TAG}
+
+      # --- Share outputs to next job ---
+      - name: Export image tag artifact
+        run: echo "${IMAGE_TAG}" > image_tag.txt
+
+      - name: Upload image tag artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-tag
+          path: image_tag.txt
+
+  deploy:
+    name: Terraform Deploy to ECS
+    needs: build_scan_push
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download image tag artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: image-tag
+          path: .
+
+      - name: Read IMAGE_TAG from artifact
+        id: readtag
+        run: |
+          TAG=$(cat image_tag.txt)
+          echo "IMAGE_TAG=$TAG" >> $GITHUB_ENV
+          echo "Using IMAGE_TAG=$TAG"
+
+      # --- Configure AWS via OIDC ---
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::<ACCOUNT_ID>:role/github-oidc-deploy
+          aws-region: ${{ env.AWS_REGION }}
+
+      # --- Terraform setup ---
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.7.5
+
+      - name: Terraform Init
+        working-directory: terraform
+        run: terraform init -input=false
+
+      # Ensure terraform.tfvars contains the current IMAGE_TAG
+      - name: Set image_tag in terraform.tfvars
+        working-directory: terraform
+        run: |
+          if grep -q '^image_tag' terraform.tfvars 2>/dev/null; then
+            sed -i "s/^image_tag\\s*=.*/image_tag = \"${IMAGE_TAG}\"/" terraform.tfvars
+          else
+            echo "image_tag = \"${IMAGE_TAG}\"" >> terraform.tfvars
+          fi
+          echo "terraform.tfvars contents:"
+          cat terraform.tfvars
+
+      - name: Terraform Plan
+        working-directory: terraform
+        run: terraform plan -out tf.plan -input=false
+
+      - name: Terraform Apply
+        working-directory: terraform
+        run: terraform apply -auto-approve tf.plan
+
+      # Optional: show the ALB DNS for quick verification
+      - name: Show ALB URL
+        working-directory: terraform
+        run: |
+          URL=$(terraform output -raw alb_dns_name || true)
+          echo "ALB URL: http://$URL"
