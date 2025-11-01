@@ -105,6 +105,13 @@ jobs:
       - name: Terraform Init
         working-directory: terraform
         run: terraform init -input=false
+      
+       # --- Stage 1: Apply Network module only ---
+      - name: Terraform Apply Network Module as it is required to import ECR
+        working-directory: terraform
+        run: |
+          echo "🚀 Applying only the network module first..."
+          terraform apply -target=module.network -auto-approve
 
       # --- Import existing ECR repo if needed ---
       - name: Import existing ECR repo if needed
