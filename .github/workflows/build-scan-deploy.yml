@@ -154,4 +154,4 @@ jobs:
         working-directory: terraform
         run: |
           URL=$(terraform output -raw alb_dns_name || true)
-          echo "ALB URL: http://$URL" 
+          echo "ALB URL: http://$URL"
