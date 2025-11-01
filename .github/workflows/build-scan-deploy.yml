@@ -5,39 +5,38 @@ on:
     branches: [ "main" ]
   workflow_dispatch:
 
-# Prevent overlapping deploys on main
-concurrency:
-  group: deploy-main
-  cancel-in-progress: false
-
 permissions:
-  id-token: write           # OIDC
-  contents: read            # checkout
-  actions: read 
+  id-token: write    # for OIDC
+  contents: read     # to checkout the repo
+  actions: read
 
 env:
   AWS_REGION: ap-south-1
   APP_NAME: hello-ecs
-  # Image tag: unique per run; can also use git SHA
   IMAGE_TAG: v${{ github.run_number }}
+  ROLE_TO_ASSUME: arn:aws:iam::813600886350:role/github-oidc-deploy
 
 jobs:
-  build_scan_push:
-    name: Build, Scan & Push to ECR
+  build_scan_deploy:
+    name: Build, Scan, Push & Deploy via Terraform
     runs-on: ubuntu-latest
 
     steps:
+      # --- Checkout code ---
       - name: Checkout
         uses: actions/checkout@v4
 
-      # --- Configure AWS via OIDC (no static keys) ---
+      # --- Configure AWS credentials using OIDC ---
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::813600886350:role/github-oidc-deploy
+          role-to-assume: ${{ env.ROLE_TO_ASSUME }}
           aws-region: ${{ env.AWS_REGION }}
 
-      # --- Get ECR URL (repo must exist; created by Terraform or manually) ---
+      - name: Verify AWS Identity
+        run: aws sts get-caller-identity
+
+      # --- Get ECR Repository URI ---
       - name: Resolve ECR Repository URI
         id: ecr
         run: |
@@ -48,7 +47,7 @@ jobs:
           echo "ECR_URL=$ECR_URL" >> $GITHUB_ENV
           echo "Resolved ECR_URL: $ECR_URL"
 
-      # --- Login to ECR ---
+      # --- Login to Amazon ECR ---
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
 
@@ -57,7 +56,7 @@ jobs:
         run: |
           docker build -t $ECR_URL:${IMAGE_TAG} ./app
 
-      # --- Trivy vulnerability scan (fail on CRITICAL/HIGH) ---
+      # --- Scan image using Trivy ---
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@0.24.0
         with:
@@ -72,72 +71,19 @@ jobs:
         run: |
           docker push $ECR_URL:${IMAGE_TAG}
 
-      # --- Share outputs to next job ---
-      - name: Export image tag artifact
-        run: echo "${IMAGE_TAG}" > image_tag.txt
-
-      - name: Upload image tag artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: image-tag
-          path: image_tag.txt
-
-  deploy:
-    name: Terraform Deploy to ECS
-    needs: build_scan_push
-    runs-on: ubuntu-latest
-    environment: production
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Download image tag artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: image-tag
-          path: .
-
-      - name: Read IMAGE_TAG from artifact
-        id: readtag
-        run: |
-          TAG=$(cat image_tag.txt)
-          echo "IMAGE_TAG=$TAG" >> $GITHUB_ENV
-          echo "Using IMAGE_TAG=$TAG"
-
-      # --- Configure AWS via OIDC (no static keys) ---
-      - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::813600886350:role/github-oidc-deploy
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name : STS caller indentity
-        run: aws sts get-caller-identity
-
-      - name : Print AWS en vars
-        run: env | grep ^AWS
-
-      # ✅ Export credentials for Terraform explicitly
-      - name: Export AWS credentials to environment
-        run: |
-          echo "AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}" >> $GITHUB_ENV
-          echo "AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}" >> $GITHUB_ENV
-          echo "AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN}" >> $GITHUB_ENV
-
-      
-
-      # Terraform setup
+      # --- Terraform Setup ---
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.7.5
 
+      # --- Terraform Init ---
       - name: Terraform Init
         working-directory: terraform
         run: terraform init -input=false
 
-      - name: Set image_tag in terraform.tfvars
+      # --- Update image_tag in terraform.tfvars ---
+      - name: Update image_tag in terraform.tfvars
         working-directory: terraform
         run: |
           if grep -q '^image_tag' terraform.tfvars 2>/dev/null; then
@@ -148,14 +94,17 @@ jobs:
           echo "terraform.tfvars contents:"
           cat terraform.tfvars
 
+      # --- Terraform Plan ---
       - name: Terraform Plan
         working-directory: terraform
         run: terraform plan -out tf.plan -input=false
 
+      # --- Terraform Apply ---
       - name: Terraform Apply
         working-directory: terraform
         run: terraform apply -auto-approve tf.plan
 
+      # --- Output ALB URL ---
       - name: Show ALB URL
         working-directory: terraform
         run: |
