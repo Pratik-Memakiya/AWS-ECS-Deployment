@@ -105,14 +105,21 @@ jobs:
           echo "IMAGE_TAG=$TAG" >> $GITHUB_ENV
           echo "Using IMAGE_TAG=$TAG"
 
-      # # --- Configure AWS via OIDC ---
-      # - name: Configure AWS credentials (OIDC)
-      #   uses: aws-actions/configure-aws-credentials@v4
-      #   with:
-      #     role-to-assume: arn:aws:iam::813600886350:role/github-oidc-deploy
-      #     aws-region: ${{ env.AWS_REGION }}
+      # ✅ Configure AWS credentials first
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::813600886350:role/github-oidc-deploy
+          aws-region: ${{ env.AWS_REGION }}
 
-      # --- Terraform setup ---
+      # ✅ Export credentials for Terraform explicitly
+      - name: Export AWS credentials to environment
+        run: |
+          echo "AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}" >> $GITHUB_ENV
+          echo "AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}" >> $GITHUB_ENV
+          echo "AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN}" >> $GITHUB_ENV
+
+      # Terraform setup
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
@@ -122,7 +129,6 @@ jobs:
         working-directory: terraform
         run: terraform init -input=false
 
-      # Ensure terraform.tfvars contains the current IMAGE_TAG
       - name: Set image_tag in terraform.tfvars
         working-directory: terraform
         run: |
@@ -142,7 +148,6 @@ jobs:
         working-directory: terraform
         run: terraform apply -auto-approve tf.plan
 
-      # Optional: show the ALB DNS for quick verification
       - name: Show ALB URL
         working-directory: terraform
         run: |
