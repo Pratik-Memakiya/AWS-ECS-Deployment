@@ -13,11 +13,11 @@ provider "aws" {
   region = var.region
 }
 
-module "ecr" {
-  source       = "./modules/ecr"
-  name         = var.app_name
-  scan_on_push = true
-}
+# module "ecr" {
+#   source       = "./modules/ecr"
+#   name         = var.app_name
+#   scan_on_push = true
+# }
 
 module "network" {
   source             = "./modules/network"
