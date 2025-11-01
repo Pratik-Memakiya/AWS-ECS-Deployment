@@ -37,15 +37,39 @@ jobs:
         run: aws sts get-caller-identity
 
       # --- Get ECR Repository URI ---
-      - name: Resolve ECR Repository URI
+      - name: Resolve or Create ECR Repository URI
         id: ecr
         run: |
+          set -e
+          APP_NAME=${APP_NAME:-hello-ecs}
+          REGION="ap-south-1"
+
+          echo "Checking if ECR repository '${APP_NAME}' exists in region ${REGION}..."
+
+          # Try to describe repository
           ECR_URL=$(aws ecr describe-repositories \
-            --repository-names ${APP_NAME} \
+            --repository-names "${APP_NAME}" \
+            --region "${REGION}" \
             --query 'repositories[0].repositoryUri' \
+            --output text 2>/dev/null) || true
+
+          # If ECR_URL is empty, create the repository
+          if [ -z "$ECR_URL" ] || [ "$ECR_URL" == "None" ]; then
+          echo "Repository not found. Creating new ECR repository '${APP_NAME}'..."
+          ECR_URL=$(aws ecr create-repository \
+            --repository-name "${APP_NAME}" \
+            --region "${REGION}" \
+            --query 'repository.repositoryUri' \
             --output text)
+          echo "✅ Repository created: $ECR_URL"
+          else
+          echo "✅ Repository already exists: $ECR_URL"
+          fi
+
+           # Export to environment
           echo "ECR_URL=$ECR_URL" >> $GITHUB_ENV
           echo "Resolved ECR_URL: $ECR_URL"
+
 
       # --- Login to Amazon ECR ---
       - name: Login to Amazon ECR
